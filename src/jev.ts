@@ -138,7 +138,7 @@ export class JevClient {
             type: "choice",
             value: c,
             confidence: (rawAns as any).confidence,
-            distribution: (rawAns as any).distribution,
+            distribution: (rawAns as any).probabilities ?? (rawAns as any).distribution,
             raw: rawAns,
           };
         } else if (qConfig.type === "noul") {
@@ -154,6 +154,7 @@ export class JevClient {
             type: "score",
             value: s,
             confidence: (rawAns as any).confidence,
+            distribution: (rawAns as any).probabilities ?? (rawAns as any).distribution,
             raw: rawAns,
           };
         }
