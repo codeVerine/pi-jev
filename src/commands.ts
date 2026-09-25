@@ -42,7 +42,7 @@ export function registerJevCommands(
 
       if (sub === "status" || sub === "") {
         const origin = jevClient.getKeyOrigin();
-        const endpoint = jevClient.getBaseURL?.() ?? null;
+        const endpoint = jevClient.getBaseURL?.() ?? (jevClient.usesGateway?.() ? "Vercel AI Gateway" : null);
         const activeTools = pi.getActiveTools();
         const allTools = pi.getAllTools();
         const activeSet = new Set(activeTools);
@@ -77,7 +77,7 @@ export function registerJevCommands(
       if (sub === "test" || sub === "eval" || sub === "evaluate") {
         if (!jevClient.isConfigured()) {
           ctx.ui.notify(
-            "Cannot run evaluation: no TypeSafe API key or compatible endpoint. Set TYPESAFE_API_KEY, write ~/.pi/agent/secrets/typesafe_api_key, or set PI_JEV_BASE_URL.",
+            "Cannot run evaluation: no TypeSafe API key or compatible endpoint. Set TYPESAFE_API_KEY, write ~/.pi/agent/secrets/typesafe_api_key, set PI_JEV_BASE_URL, or set AI_GATEWAY_API_KEY / ~/.pi/agent/secrets/ai_gateway_api_key.",
             "error"
           );
           return;

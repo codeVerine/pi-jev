@@ -7,6 +7,7 @@ Semantic tool routing and typed decisions for the [Pi coding agent](https://pi.d
 - **Semantic Tool Router (`jev_find_tools`)**: Automatically searches registered inactive tools and additively activates only the tools needed for the user's specific prompt or workflow.
 - **Skill Discovery (`jev_find_skill`)**: Semantically matches and suggests the most relevant specialized agent skills (`SKILL.md`) for any task without cluttering prompt context.
 - **Typed Judgments (`jev_evaluate`)**: Run fast, calibrated System One decisions directly from the agent using Choice, Noul (yes/no probability), and Score primitives.
+- **Vercel AI Gateway**: `AI_GATEWAY_API_KEY` or `~/.pi/agent/secrets/ai_gateway_api_key` sends Jev requests through Vercel AI Gateway's `typesafe-ai/jev` model when no TypeSafe key or custom endpoint is set.
 - **Custom Jev Endpoint**: `PI_JEV_BASE_URL` / `TYPESAFE_BASE_URL` points the TypeSafe client at Jev-compatible local servers or proxies such as Laya `laya-serve`.
 - **Dynamic Evaluations (`/jev test <prompt>`)**: The active model designs the Jev question schema for a free-form prompt, then Jev evaluates it.
 - **Automatic Mode (opt-in)**: `--jev-auto` / `PI_JEV_AUTO=1` / `/jev auto on` routes tools and suggests skills before every prompt. Off by default.
@@ -47,6 +48,17 @@ export PI_JEV_BASE_URL=http://localhost:8000
 ```
 
 Custom endpoints may omit `TYPESAFE_API_KEY`; `pi-jev` sends an empty key in that case for unauthenticated local servers such as Laya's `laya-serve`.
+
+To reach Jev through [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) instead, set a Gateway key in the environment or in Pi's secret store. `pi-jev` uses it only when no TypeSafe key or custom endpoint is configured:
+
+```bash
+export AI_GATEWAY_API_KEY=vck_...
+# or
+mkdir -p ~/.pi/agent/secrets
+echo "vck_..." > ~/.pi/agent/secrets/ai_gateway_api_key
+```
+
+Like TypeSafe SDK requests, Gateway requests are retried up to twice on 408, 429, 5xx, and connection errors, with backoff that honors `Retry-After` up to 10 seconds.
 
 Or store your TypeSafe key in Pi's secret store file:
 
