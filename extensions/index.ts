@@ -76,7 +76,19 @@ export default function (pi: ExtensionAPI) {
   registerJevTools(pi, jevClient, router, skillRouter);
   registerJevCommands(pi, jevClient, router, skillRouter, auto, autoModel, compactor, agents, toolGuard);
 
+  let cliFlagsApplied = false;
   pi.on("session_start", (_event, ctx) => {
+    // Pi parses extension CLI flags after factories run, so the constructors above only saw the
+    // env-derived defaults. Apply the parsed values once; later sessions keep /jev runtime toggles.
+    if (!cliFlagsApplied) {
+      cliFlagsApplied = true;
+      auto.setEnabled(Boolean(pi.getFlag("jev-auto")));
+      autoModel.setEnabled(Boolean(pi.getFlag("jev-auto-model")));
+      compactor.setEnabled(Boolean(pi.getFlag("jev-compact")));
+      agents.setEnabled(Boolean(pi.getFlag("jev-agents")));
+      toolGuard.setEnabled(Boolean(pi.getFlag("jev-tool-guard")));
+    }
+
     if (!jevClient.isConfigured()) {
       ctx.ui.setStatus("jev", "jev: unconfigured");
       return;
