@@ -5,8 +5,9 @@ import type { JevClient } from "../src/jev.js";
 import type { ToolRouter } from "../src/router.js";
 import type { SkillRouter } from "../src/skills.js";
 import type { AutoJev } from "../src/auto.js";
+import type { ResultEvaluator } from "../src/result-eval.js";
 
-function harness(designed: unknown, answers: Record<string, any> = {}) {
+function harness(designed: unknown, answers: Record<string, any> = {}, resultEval?: ResultEvaluator) {
   let handler: ((args: string, ctx: any) => Promise<void>) | undefined;
   let activeTools = ["read"];
   const allTools = [
@@ -52,7 +53,12 @@ function harness(designed: unknown, answers: Record<string, any> = {}) {
     jevClient,
     {} as ToolRouter,
     {} as SkillRouter,
-    auto as unknown as AutoJev
+    auto as unknown as AutoJev,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    resultEval
   );
 
   const notify = (message: string, level?: string) => {
@@ -199,4 +205,41 @@ test("/jev help lists usage at info level instead of warning", async () => {
 
   assert.match(calls.at(-1)!.message, /\/jev auto \[on\|off\]/);
   assert.equal(calls.at(-1)!.level, "info");
+});
+
+test("/jev result-eval sets off, shadow, or enforce and rejects anything else", async () => {
+  const resultEval = {
+    mode: "off",
+    setMode(mode: string) {
+      this.mode = mode;
+    },
+  };
+  const { run, calls } = harness({}, {}, resultEval as unknown as ResultEvaluator);
+
+  await run("result-eval shadow");
+  assert.equal(resultEval.mode, "shadow");
+  assert.match(calls.at(-1)!.message, /set to shadow.*never change the turn/);
+
+  await run("result-eval enforce");
+  assert.equal(resultEval.mode, "enforce");
+
+  await run("result-eval on");
+  assert.equal(resultEval.mode, "enforce");
+  assert.match(calls.at(-1)!.message, /Unknown \/jev result-eval argument "on"/);
+  assert.equal(calls.at(-1)!.level, "warning");
+
+  await run("result-eval");
+  assert.match(calls.at(-1)!.message, /result evaluation: enforce/);
+
+  await run("status");
+  assert.match(calls.at(-1)!.message, /Result evaluation: enforce/);
+
+  await run("result-eval off");
+  assert.equal(resultEval.mode, "off");
+});
+
+test("/jev status reports result evaluation off when the evaluator is absent", async () => {
+  const { run, calls } = harness({});
+  await run("status");
+  assert.match(calls.at(-1)!.message, /Result evaluation: off/);
 });

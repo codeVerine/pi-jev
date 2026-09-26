@@ -61,3 +61,29 @@ test("JevClient reports explicit runtime key as in-session", () => {
 
   assert.equal(client.getKeyOrigin(), "set in-session");
 });
+
+test("JevClient exposes SDK choice and score probabilities as distribution", async () => {
+  const client = new JevClient();
+  client.setApiKey("test-key");
+  (client as any).client = {
+    systemOne: async () => ({
+      model: "jev-test",
+      answers: {
+        pick: { type: "choice", choice: "yes", confidence: 0.9, probabilities: { yes: 0.93, no: 0.07 } },
+        grade: { type: "score", score: 2, confidence: 0.8, probabilities: { 1: 0.2, 2: 0.8 } },
+      },
+    }),
+  };
+
+  const res = await client.evaluate({
+    state: "state",
+    questions: {
+      pick: { type: "choice", instructions: "pick", criteria: { yes: null, no: null } },
+      grade: { type: "score", instructions: "grade", criteria: ["low", "high"] },
+    },
+  });
+
+  assert.deepEqual(res.answers.pick.distribution, { yes: 0.93, no: 0.07 });
+  assert.equal(res.answers.pick.confidence, 0.9);
+  assert.deepEqual(res.answers.grade.distribution, { 1: 0.2, 2: 0.8 });
+});

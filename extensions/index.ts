@@ -10,6 +10,7 @@ import { JevCompactor } from "../src/compact.js";
 import { AgentOrchestrator } from "../src/orchestrator.js";
 import { JevAgentHandler } from "../src/agent.js";
 import { ToolGuard } from "../src/tool-guard.js";
+import { RESULT_EVAL_FLAG, ResultEvaluator, parseControlMode } from "../src/result-eval.js";
 
 function envAutoEnabledFor(name: string): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
@@ -35,6 +36,12 @@ export default function (pi: ExtensionAPI) {
     description: "Validate tool calls with Jev System One to prevent hallucinations",
     type: "boolean",
     default: envAutoEnabledFor("PI_JEV_TOOL_GUARD"),
+  });
+
+  pi.registerFlag(RESULT_EVAL_FLAG, {
+    description: "Judge successful tool results with Jev: off, shadow (record only), or enforce (also via PI_JEV_RESULT_EVAL)",
+    type: "string",
+    default: parseControlMode(process.env.PI_JEV_RESULT_EVAL) ?? "off",
   });
 
   pi.registerFlag("jev-compact", {
@@ -70,13 +77,28 @@ export default function (pi: ExtensionAPI) {
   const toolGuard = new ToolGuard(pi, jevClient, Boolean(pi.getFlag("jev-tool-guard")));
   toolGuard.install();
 
+  const resultEval = new ResultEvaluator(pi, jevClient, parseControlMode(pi.getFlag(RESULT_EVAL_FLAG)) ?? "off");
+  resultEval.install();
+
   const agentHandler = new JevAgentHandler(pi, jevClient);
   agentHandler.install();
 
   registerJevTools(pi, jevClient, router, skillRouter);
-  registerJevCommands(pi, jevClient, router, skillRouter, auto, autoModel, compactor, agents, toolGuard);
+  registerJevCommands(pi, jevClient, router, skillRouter, auto, autoModel, compactor, agents, toolGuard, resultEval);
 
+  let cliFlagsApplied = false;
   pi.on("session_start", (_event, ctx) => {
+    // Pi parses extension CLI flags after factories run, so the constructors above only saw the
+    // env-derived defaults. Apply the parsed values once; later sessions keep /jev runtime toggles.
+    if (!cliFlagsApplied) {
+      cliFlagsApplied = true;
+      auto.setEnabled(Boolean(pi.getFlag("jev-auto")));
+      autoModel.setEnabled(Boolean(pi.getFlag("jev-auto-model")));
+      compactor.setEnabled(Boolean(pi.getFlag("jev-compact")));
+      agents.setEnabled(Boolean(pi.getFlag("jev-agents")));
+      toolGuard.setEnabled(Boolean(pi.getFlag("jev-tool-guard")));
+    }
+
     if (!jevClient.isConfigured()) {
       ctx.ui.setStatus("jev", "jev: unconfigured");
       return;

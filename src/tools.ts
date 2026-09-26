@@ -149,7 +149,7 @@ export function registerJevTools(
     async execute(_toolCallId, params: any, signal, onUpdate) {
       if (!jevClient.isConfigured()) {
         throw new Error(
-          "TypeSafe Jev is not configured. Set TYPESAFE_API_KEY, save ~/.pi/agent/secrets/typesafe_api_key, or set PI_JEV_BASE_URL."
+          "TypeSafe Jev is not configured. Set TYPESAFE_API_KEY, save ~/.pi/agent/secrets/typesafe_api_key, set PI_JEV_BASE_URL, or set AI_GATEWAY_API_KEY / ~/.pi/agent/secrets/ai_gateway_api_key."
         );
       }
 

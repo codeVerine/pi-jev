@@ -31,7 +31,7 @@ export async function executeJevAgentTask(
   signal?: AbortSignal
 ): Promise<JevAgentResult> {
   if (!client.isConfigured()) {
-    throw new Error("TypeSafe Jev unconfigured. Set TYPESAFE_API_KEY or PI_JEV_BASE_URL.");
+    throw new Error("TypeSafe Jev unconfigured. Set TYPESAFE_API_KEY, PI_JEV_BASE_URL, or AI_GATEWAY_API_KEY / ~/.pi/agent/secrets/ai_gateway_api_key.");
   }
 
   let questions: Record<string, QuestionConfig> = {};

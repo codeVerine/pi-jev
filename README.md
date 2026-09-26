@@ -7,16 +7,18 @@ Semantic tool routing and typed decisions for the [Pi coding agent](https://pi.d
 - **Semantic Tool Router (`jev_find_tools`)**: Automatically searches registered inactive tools and additively activates only the tools needed for the user's specific prompt or workflow.
 - **Skill Discovery (`jev_find_skill`)**: Semantically matches and suggests the most relevant specialized agent skills (`SKILL.md`) for any task without cluttering prompt context.
 - **Typed Judgments (`jev_evaluate`)**: Run fast, calibrated System One decisions directly from the agent using Choice, Noul (yes/no probability), and Score primitives.
+- **Vercel AI Gateway**: `AI_GATEWAY_API_KEY` or `~/.pi/agent/secrets/ai_gateway_api_key` sends Jev requests through Vercel AI Gateway's `typesafe-ai/jev` model when no TypeSafe key or custom endpoint is set.
 - **Custom Jev Endpoint**: `PI_JEV_BASE_URL` / `TYPESAFE_BASE_URL` points the TypeSafe client at Jev-compatible local servers or proxies such as Laya `laya-serve`.
 - **Dynamic Evaluations (`/jev test <prompt>`)**: The active model designs the Jev question schema for a free-form prompt, then Jev evaluates it.
 - **Automatic Mode (opt-in)**: `--jev-auto` / `PI_JEV_AUTO=1` / `/jev auto on` routes tools and suggests skills before every prompt. Off by default.
 - **Automatic Model Mode (opt-in)**: `--jev-auto-model` / `PI_JEV_AUTO_MODEL=1` / `/jev auto-model on` selects fast, balanced, reasoning, long-context, or vision models per prompt. Off by default.
 - **Tool Call Guard (opt-in)**: `--jev-tool-guard` / `PI_JEV_TOOL_GUARD=1` / `/jev tool-guard on` intercepts tool calls with Jev to detect hallucinations and enhance failed results. Off by default.
+- **Tool Result Evaluation (opt-in)**: `--jev-result-eval shadow|enforce` / `PI_JEV_RESULT_EVAL` / `/jev result-eval` judges each completed tool turn with one batched Jev request. Shadow mode records what it would do; enforce mode adds a short note when a result needs another approach, investigation, or the user. Off by default. Requires Pi 0.87+.
 - **Jev Compaction (opt-in)**: `--jev-compact` / `PI_JEV_COMPACT=1` / `/jev compact on` uses Jev to retain important tool history during `/compact`, while Pi's normal compaction remains the safe fallback.
 - **Agent Orchestration & Typed Agent**: `/jev agents <task>` dispatches `pi-subagents` orchestration; register `agent: "jev"` in workflows for instant sub-second typed judgments without LLM overhead.
 - **Post-Run Gate Check (`jev-gate` CLI)**: Fast binary for subagent `gate` parameters (`npx pi-jev-gate -c "criteria"`). Checks git diff / output and exits 0 on pass or 1 on fail.
 - **On-Demand & Safe**: Runs when called. No unsolicited per-turn API token costs. Fails closed safely: if Jev is unreachable or unconfigured, tool routing does not blindly activate unjudged tools and reports zero confidence on keyword fallbacks.
-- **Cost Clarity**: Tool routing (`jev_find_tools`, `/jev auto`), skill discovery (`jev_find_skill`), evaluations (`jev_evaluate`), Jev subagents (`agent: "jev"`), and gate checks (`pi-jev-gate`) consume a Jev System One request. Heuristic fast-paths like `/jev auto-model` and topology fallback classify locally without spending Jev requests.
+- **Cost Clarity**: Tool routing (`jev_find_tools`, `/jev auto`), skill discovery (`jev_find_skill`), evaluations (`jev_evaluate`), tool result evaluation (per tool turn), Jev subagents (`agent: "jev"`), and gate checks (`pi-jev-gate`) consume a Jev System One request. Heuristic fast-paths like `/jev auto-model` and topology fallback classify locally without spending Jev requests.
 
 ## Installation
 
@@ -46,6 +48,17 @@ export PI_JEV_BASE_URL=http://localhost:8000
 ```
 
 Custom endpoints may omit `TYPESAFE_API_KEY`; `pi-jev` sends an empty key in that case for unauthenticated local servers such as Laya's `laya-serve`.
+
+To reach Jev through [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) instead, set a Gateway key in the environment or in Pi's secret store. `pi-jev` uses it only when no TypeSafe key or custom endpoint is configured:
+
+```bash
+export AI_GATEWAY_API_KEY=vck_...
+# or
+mkdir -p ~/.pi/agent/secrets
+echo "vck_..." > ~/.pi/agent/secrets/ai_gateway_api_key
+```
+
+Like TypeSafe SDK requests, Gateway requests are retried up to twice on 408, 429, 5xx, and connection errors, with backoff that honors `Retry-After` up to 10 seconds.
 
 Or store your TypeSafe key in Pi's secret store file:
 
@@ -145,6 +158,24 @@ if (triage.primaryValue === "bug") {
 
 Execution is asynchronous; completion is reported back into the session. Automatic dispatch is opt-in via `--jev-agents` / `PI_JEV_AGENTS=1` or `/jev auto-agents on`.
 
+### Tool Result Evaluation
+
+Pi's main model decides after every tool call whether the result did what it needed. `/jev result-eval` moves that bounded judgment to Jev. Code still owns the thresholds and actions, and the main model still writes every retry and question.
+
+- **When it runs**: Pi's `turn_end` boundary, after the assistant message and **all** of its tool results are available, so parallel tool calls are judged together. Turns where every call failed are skipped (the tool guard covers errors), as are aborted turns and turns that only used this extension's tools.
+- **What Jev sees**: the user request (up to 2,000 chars), the assistant text that issued the calls as the current step (up to 1,000), each call's arguments (500) and result head and tail (1,500), and the last six calls. No other conversation history.
+- **Questions (one request per tool turn)**: `goal_achieved`, `useful_progress`, and `unresolved_issue` (Noul), plus `next_action` (Choice: `accept_result`, `retry_modified`, `investigate`, `ask_user`, `stop_failure`, `escalate`).
+- **Policy**: only course changes intervene. A Choice acts only when both its reported confidence and its option probability clear the per-action threshold (`retry_modified` 0.70, `ask_user` 0.85, `stop_failure` 0.90), and `goal_achieved` ≥ 0.85 suppresses all of them. `accept_result`, `investigate`, `escalate`, and the three Noul judgments are recorded but never acted on. In shadow sessions Jev chose `investigate` on most exploration and debugging turns, where the agent was already gathering information, so a note there was noise. Thresholds live in `RESULT_EVAL_THRESHOLDS` in `src/result-eval.ts` and are starting points, not calibrated values.
+- **Modes**: `off` (default) sends nothing. `shadow` calls Jev and records the decision without changing context. `enforce` also appends one fixed `jev-result` note to the context before the next model request. It never requests extra model turns.
+- **Failures**: a 5 second deadline, network errors, and malformed answers all leave the turn unchanged. The fallback reason is recorded. Transient Jev errors (408, 429, 5xx, connection failures) are retried up to twice within that deadline.
+- **Cost**: one Jev request per tool turn with at least one successful call. This adds Jev latency before the next model request.
+
+Each decision is stored as a `jev-decision` custom session entry. These entries hold the mode, turn, tool names, Jev model, latency, input size, answers, thresholds, action, whether it was applied, and any fallback reason. They never hold tool output or prompts, and they are not sent to the model. To review shadow decisions before enforcing:
+
+```bash
+jq -c 'select(.type == "custom" and .customType == "jev-decision") | .data | {turnIndex, action, applied, fallback, answers}' ~/.pi/agent/sessions/*/*.jsonl
+```
+
 ### Jev Compaction
 
 `/jev compact on` enables Jev-guided compaction. Tool-history entries are evaluated for retention; important paths, errors, constraints, and results stay in the custom summary. User and assistant intent is not rewritten. The feature preserves Pi's `firstKeptEntryId` boundary and falls back to Pi's built-in summary when Jev is unconfigured, fails, or returns unusable data. It does not silently truncate context.
@@ -164,6 +195,7 @@ Auto-model uses task signals, attached images, and context size to choose the be
 - `/jev auto [on|off]` — Turns automatic per-prompt tool/skill routing on or off (no argument flips it).
 - `/jev auto-model [on|off]` — Turns automatic model selection on or off (no argument flips it).
 - `/jev tool-guard [on|off]` — Turns tool call anti-hallucination validation and error guidance on or off.
+- `/jev result-eval [off|shadow|enforce]`: Sets tool result evaluation mode (no argument shows the current mode).
 - `/jev compact [on|off]` — Turns Jev-guided compaction on or off. Run `/compact` after enabling.
 - `/jev agents <task>` — Dispatches the task to `pi-subagents`, which selects and coordinates available agents.
 - `/jev auto-agents [on|off]` — Enables automatic orchestration for complex architecture, refactoring, security, repository-wide, and migration prompts.
